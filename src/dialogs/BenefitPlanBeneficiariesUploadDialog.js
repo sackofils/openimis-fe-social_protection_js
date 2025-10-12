@@ -3,8 +3,9 @@
 /* eslint-disable react/jsx-no-useless-fragment */
 import React, { useEffect, useState } from 'react';
 import {
-  Input, Grid, MenuItem, Typography, Select,
+  Input, Grid, MenuItem, Typography, Select, CircularProgress, Backdrop, Snackbar, Fade,
 } from '@material-ui/core';
+import MuiAlert from '@material-ui/lab/Alert';
 import { injectIntl } from 'react-intl';
 import Button from '@material-ui/core/Button';
 import Dialog from '@material-ui/core/Dialog';
@@ -30,7 +31,18 @@ import downloadTemplate from '../util/export';
 
 const styles = (theme) => ({
   item: theme.paper.item,
+  backdrop: {
+    zIndex: theme.zIndex.drawer + 2,
+    color: '#fff',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '12px',
+  },
 });
+
+function Alert(props) {
+  return <MuiAlert elevation={6} variant="filled" {...props} />;
+}
 
 function BenefitPlanBeneficiariesUploadDialog({
   intl,
@@ -44,39 +56,37 @@ function BenefitPlanBeneficiariesUploadDialog({
   const [forms, setForms] = useState({});
   const [headers, setHeaders] = useState([]);
   const [groupAggregationHeader, setGroupAggregationHeader] = useState(null);
-
-  const handleOpen = () => {
-    setIsOpen(true);
-  };
-
-  const handleClose = () => {
-    setForms({});
-    setIsOpen(false);
-  };
+  const [saving, setSaving] = useState(false);
+  const [snackbarOpen, setSnackbarOpen] = useState(false);
+  const [snackbarMessage, setSnackbarMessage] = useState('');
+  const [snackbarSeverity, setSnackbarSeverity] = useState('success');
 
   useEffect(() => {
     fetchWorkflows();
   }, []);
 
+  const handleOpen = () => setIsOpen(true);
+  const handleClose = () => {
+    setForms({});
+    setHeaders([]);
+    setGroupAggregationHeader(null);
+    setIsOpen(false);
+  };
+
+  const handleSnackbarClose = () => setSnackbarOpen(false);
+
   const isBenefitPlanGroupType = () => benefitPlan.type === BENEFIT_PLAN_TYPE.GROUP;
 
   const getHeadersFromCSV = async (file) => new Promise((resolve, reject) => {
     const reader = new FileReader();
-
     reader.onload = (event) => {
       const csvData = event.target.result;
-      const firstLine = csvData.substring(0, csvData.indexOf('\n')); // Get only the first line
-      const headers = firstLine.split(',');
-      if (headers.length && !headers.some((item) => !item)) {
-        headers.unshift('');
-      }
-      resolve(headers);
+      const firstLine = csvData.substring(0, csvData.indexOf('\n'));
+      const headersList = firstLine.split(',');
+      if (headersList.length && !headersList.some((item) => !item)) headersList.unshift('');
+      resolve(headersList);
     };
-
-    reader.onerror = (error) => {
-      reject(error);
-    };
-
+    reader.onerror = (error) => reject(error);
     reader.readAsText(file);
   });
 
@@ -145,6 +155,7 @@ function BenefitPlanBeneficiariesUploadDialog({
     }
 
     try {
+      setSaving(true);
       const response = await fetch(urlImport, {
         headers: apiHeaders,
         body: formData,
@@ -153,6 +164,10 @@ function BenefitPlanBeneficiariesUploadDialog({
       });
 
       if (response.ok) {
+        setSaving(false);
+        setSnackbarMessage('Importation réussie !');
+        setSnackbarSeverity('success');
+        setSnackbarOpen(true);
         handleClose();
         return;
       }
@@ -162,9 +177,17 @@ function BenefitPlanBeneficiariesUploadDialog({
         ? formatMessage(intl, 'socialProtection', 'benefitPlan.benefitPlanBeneficiaries.alert.sameFileName')
         : EMPTY_STRING;
 
+      setSaving(false);
       coreAlert(errorHeader, errorMessage);
+      setSnackbarMessage('Erreur lors de l’importation.');
+      setSnackbarSeverity('error');
+      setSnackbarOpen(true);
     } catch (error) {
+      setSaving(false);
       handleClose();
+      setSnackbarMessage('Une erreur est survenue.');
+      setSnackbarSeverity('error');
+      setSnackbarOpen(true);
     }
   };
 
@@ -182,28 +205,21 @@ function BenefitPlanBeneficiariesUploadDialog({
       >
         {formatMessage(intl, 'socialProtection', 'benefitPlan.benefitPlanBeneficiaries.upload')}
       </Button>
+
+      {/* === DIALOG UPLOAD === */}
       <Dialog
         open={isOpen}
         onClose={handleClose}
         PaperProps={{
-          style: {
-            width: 600,
-            maxWidth: 1000,
-          },
+          style: { width: 600, maxWidth: 1000 },
         }}
       >
         <form noValidate>
-          <DialogTitle
-            style={{
-              marginTop: '10px',
-            }}
-          >
+          <DialogTitle style={{ marginTop: '10px' }}>
             {formatMessage(intl, 'socialProtection', 'benefitPlan.benefitPlanBeneficiaries.upload.label')}
           </DialogTitle>
           <DialogContent>
-            <div
-              style={{ backgroundColor: '#DFEDEF', paddingLeft: '10px', paddingBottom: '10px' }}
-            >
+            <div style={{ backgroundColor: '#DFEDEF', paddingLeft: '10px', paddingBottom: '10px' }}>
               <Grid item>
                 <Grid container spacing={4} direction="column">
                   <Grid item>
@@ -212,10 +228,7 @@ function BenefitPlanBeneficiariesUploadDialog({
                       required
                       id="import-button"
                       inputProps={{
-                        accept: '.csv, application/csv, text/csv, '
-                               + 'application/vnd.ms-excel, '
-                               + 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, '
-                               + '.xls, .xlsx',
+                        accept: '.csv, application/csv, text/csv, application/vnd.ms-excel, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, .xls, .xlsx',
                       }}
                       type="file"
                     />
@@ -231,6 +244,7 @@ function BenefitPlanBeneficiariesUploadDialog({
                     />
                   </Grid>
                 </Grid>
+
                 {getFieldValue() === PYTHON_DEFAULT_IMPORT_WORKFLOW && isBenefitPlanGroupType() ? (
                   <Grid container direction="row" alignItems="center">
                     <Grid container spacing={4} direction="row" alignItems="center">
@@ -257,9 +271,7 @@ function BenefitPlanBeneficiariesUploadDialog({
                     </Grid>
                     <Grid spacing={4} item>
                       <Typography style={{ fontSize: '12px' }}>
-                        *
-                        {' '}
-                        <FormattedMessage module={MODULE_NAME} id="groupAggregationInfo" />
+                        * <FormattedMessage module={MODULE_NAME} id="groupAggregationInfo" />
                       </Typography>
                     </Grid>
                   </Grid>
@@ -267,24 +279,15 @@ function BenefitPlanBeneficiariesUploadDialog({
               </Grid>
             </div>
           </DialogContent>
-          <DialogActions
-            style={{
-              display: 'inline',
-              paddingLeft: '10px',
-              marginTop: '25px',
-              marginBottom: '15px',
-            }}
-          >
+
+          <DialogActions style={{ display: 'inline', paddingLeft: '10px', marginTop: '25px', marginBottom: '15px' }}>
             <div style={{ maxWidth: '1000px' }}>
               <div style={{ float: 'left' }}>
                 <Button
                   onClick={handleClose}
                   variant="outlined"
                   autoFocus
-                  style={{
-                    margin: '0 16px',
-                    marginBottom: '15px',
-                  }}
+                  style={{ margin: '0 16px', marginBottom: '15px' }}
                 >
                   Cancel
                 </Button>
@@ -298,31 +301,45 @@ function BenefitPlanBeneficiariesUploadDialog({
                 >
                   {formatMessage(intl, 'socialProtection', 'benefitPlan.benefitPlanBeneficiaries.template')}
                 </Button>
-                <></><></>
                 <Button
                   variant="contained"
                   color="primary"
                   onClick={() => onSubmit(forms.workflows)}
-                  disabled={
-                    !(
-                      forms.workflows?.file
-                      && forms.workflows?.workflow
-                    )
-                  }
+                  disabled={!(forms.workflows?.file && forms.workflows?.workflow) || saving}
                 >
-                  {formatMessage(intl, 'socialProtection', 'benefitPlan.benefitPlanBeneficiaries.upload.label')}
+                  {saving ? <CircularProgress size={22} color="inherit" /> : formatMessage(intl, 'socialProtection', 'benefitPlan.benefitPlanBeneficiaries.upload.label')}
                 </Button>
               </div>
             </div>
           </DialogActions>
         </form>
       </Dialog>
+
+      {/* === BACKDROP LOADING === */}
+      <Fade in={saving} timeout={{ enter: 300, exit: 300 }}>
+        <Backdrop className={classes.backdrop} open={saving}>
+          <CircularProgress color="inherit" />
+          <Typography variant="subtitle1">Importation en cours...</Typography>
+        </Backdrop>
+      </Fade>
+
+      {/* === SNACKBAR NOTIFICATION === */}
+      <Snackbar
+        open={snackbarOpen}
+        autoHideDuration={4000}
+        onClose={handleSnackbarClose}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      >
+        <Alert onClose={handleSnackbarClose} severity={snackbarSeverity}>
+          {snackbarMessage}
+        </Alert>
+      </Snackbar>
     </>
   );
 }
 
 const mapStateToProps = (state) => ({
-  rights: !!state.core && !!state.core.user && !!state.core.user.i_user ? state.core.user.i_user.rights : [],
+  rights: state.core?.user?.i_user?.rights ?? [],
   confirmed: state.core.confirmed,
   workflows: state.socialProtection.workflows,
 });
